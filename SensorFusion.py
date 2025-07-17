@@ -4,7 +4,6 @@ from GPSReader import GPSReader
 from IMUReader import IMUReader
 from LocalFrame import LocalFrame
 import matplotlib.pyplot as plt
-import numpy as np
 
 class GPS_IMU_KF:
     def __init__(self, dt, initial_coords=None, gps_r=5.0, init_uncertainty=100.0):
@@ -12,15 +11,15 @@ class GPS_IMU_KF:
         self.gps = GPSReader()
         self.imu = IMUReader()
 
-        # 1) Build local ENU frame at the true origin
+        # Build local ENU frame at the true origin
         lat0, lon0, _ = initial_coords
         self.frame = LocalFrame(lat0, lon0)
 
-        # 2) Initialize state to that GPS fix
+        # Initialize state to that GPS fix
         x0, y0 = self.frame.latlon_to_enu(lat0, lon0)
         self.x = np.array([[x0], [y0], [0.0], [0.0]])
 
-        # 3) Larger initial covariance → faster correction
+        # Larger initial covariance → faster correction
         self.P = np.eye(4) * init_uncertainty
         
         # Process noise (tune based on IMU noise)
@@ -39,8 +38,7 @@ class GPS_IMU_KF:
         ])
 
         # Measurement noise (tune based on GPS spec)
-        r_pos = 5.0  # meters
-        self.R = np.eye(2) * (r_pos**2)
+        self.R = np.eye(2) * (gps_r**2)
 
         # Identity matrix
         self.I = np.eye(4)
@@ -61,19 +59,12 @@ class GPS_IMU_KF:
             [        dt,          0],
             [         0,         dt]
         ])
-        q = 0.1
-        Q = np.array([
-            [dt**4/4,      0, dt**3/2,      0],
-            [     0, dt**4/4,      0, dt**3/2],
-            [dt**3/2,      0,    dt**2,      0],
-            [     0, dt**3/2,      0,    dt**2]
-        ]) * q
         
         u = np.array([[ax], [ay]])
 
         # Predict state and covariance
         self.x = F.dot(self.x) + B.dot(u)
-        self.P = F.dot(self.P).dot(F.T) + Q
+        self.P = F.dot(self.P).dot(F.T) + self.Q
 
     def update(self, meas_x, meas_y):
         z = np.array([[meas_x], [meas_y]])
@@ -90,20 +81,33 @@ class GPS_IMU_KF:
 # --- Main Loop Example ---
 
 log = {
-    "t": [], "Ax_raw": [], "Ay_raw": [],
-    "Ax": [], "Ay": [],
-    "vx_pred": [], "vy_pred": [],
-    "vx_fuse": [], "vy_fuse": [],
-    "res_x": [], "res_y": [],
-    "Pvx": [], "Pvy": [], "t_imu": [], "t_gps": [], "t": [], "dt": []
+    "t": [],
+    "Ax_raw": [],
+    "Ay_raw": [],
+    "Ax": [],
+    "Ay": [],
+    "vx_pred": [],
+    "vy_pred": [],
+    "vx_fuse": [],
+    "vy_fuse": [],
+    "res_x": [],
+    "res_y": [],
+    "Pvx": [],
+    "Pvy": [],
+    "t_imu": [],
+    "t_gps": [],
+    "dt": []
 }
 last_time = time.time()
+
+# Single instance for GPS
+gps_reader = GPSReader()
 
 # Wait for a valid GPS fix
 print("Waiting for initial GPS fix...")
 init_coords = None
 while not init_coords:
-    fix = GPSReader().read_coordinates()
+    fix = gps_reader.read_coordinates()
     if fix:
         init_coords = fix
     time.sleep(0.5)
@@ -115,7 +119,6 @@ frame = LocalFrame(init_coords[0], init_coords[1])
 
 # Pass init fix to Kalman filter
 kf = GPS_IMU_KF(dt=0.1, initial_coords=init_coords, gps_r=2.0, init_uncertainty=100.0)
-
 
 print("Calibrating IMU...")
 samples = []
@@ -149,9 +152,9 @@ try:
         ax = ax_raw - avg_ax
         ay = ay_raw - avg_ay
         
-        
         log["t_imu"].append(t_imu)
-        
+        log["dt"].append(dt)
+
         # --- 2. Predict step ---
         if last_t_imu is None:
             dt = kf.dt
@@ -159,10 +162,7 @@ try:
             dt = t_imu - last_t_imu
         
         last_t_imu = t_imu
-        
-        log["t_imu"].append(t_imu)
-        log["dt"].append(dt)
-        
+
         kf.predict(ax, ay, dt)
         vx_pred, vy_pred = kf.x[2,0], kf.x[3,0]
 
@@ -293,6 +293,5 @@ plt.plot(t_plot, dt_plot, ".-")
 plt.title("Δt Over Time")
 plt.xlabel("Loop Time [s]")
 plt.ylabel("Δt [s]")
-
 
 plt.show()
