@@ -1,5 +1,6 @@
 import serial
 import pynmea2
+import datetime
 
 class GPSReader:
     def __init__(self, port="/dev/serial0", baudrate=9600, timeout=0.5):
@@ -23,8 +24,14 @@ class GPSReader:
                 msg = pynmea2.parse(line)
                 if msg.status != 'A':
                     # GPS fix is invalid or not available
-                    return None
-                return (msg.latitude, msg.longitude)
+                    return
+                dt = datetime.datetime.combine(
+                    msg.datestamp,
+                    msg.timestamp
+                )
+                ts = dt.timestamp()
+                
+                return (msg.latitude, msg.longitude, ts)
         except pynmea2.ParseError:
             return None
         except Exception as e:
@@ -37,7 +44,7 @@ class GPSReader:
             self.ser.close()
 
 # --- Example Usage ---
-if __name__ == "__main__":
+"""if __name__ == "__main__":
     gps = GPSReader()
     try:
         while True:
@@ -48,4 +55,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
     finally:
-        gps.close()
+        gps.close()"""
